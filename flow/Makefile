@@ -102,8 +102,8 @@
 #DESIGN_CONFIG=./designs/ihp-sg13g2/riscv32i/config.mk
 
 # Default design
-DESIGN_CONFIG ?= ./designs/nangate45/gcd/config.mk
-
+#DESIGN_CONFIG ?= ./designs/nangate45/gcd/config.mk
+DESIGN_CONFIG ?= ./designs/nangate45/bit_parity/config.mk
 # Default TNS_END_PERCENT value for post CTS timing repair
 # Try fixing all violating endpoints by default (reduce to 5% for runtime)
 export TNS_END_PERCENT ?=100
