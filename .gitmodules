@@ -5,7 +5,3 @@
 	path = tools/OpenROAD
 	url = ../OpenROAD.git
 	branch = master
-[submodule "tools/OpenROAD/src/p2f"]
-	path = tools/OpenROAD/src/p2f
-	url = https://github.com/P2FSemicon/OpenROAD-p2f.git
-	branch = master
