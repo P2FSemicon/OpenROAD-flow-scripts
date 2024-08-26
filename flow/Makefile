@@ -103,7 +103,17 @@
 
 # Default design
 #DESIGN_CONFIG ?= ./designs/nangate45/gcd/config.mk
-DESIGN_CONFIG ?= ./designs/nangate45/bit_parity/config.mk
+
+############################CUSTOM TEST CASES P2F###############################
+DESIGN_CONFIG ?= ./designs/nangate45/bptc004/config.mk
+# DESIGN_CONFIG ?= ./designs/nangate45/bit_parity/config.mk
+# DESIGN_CONFIG ?= ./designs/nangate45/fulladder/config.mk
+
+
+
+
+
+
 # Default TNS_END_PERCENT value for post CTS timing repair
 # Try fixing all violating endpoints by default (reduce to 5% for runtime)
 export TNS_END_PERCENT ?=100
