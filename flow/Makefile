@@ -102,7 +102,7 @@
 #DESIGN_CONFIG=./designs/ihp-sg13g2/riscv32i/config.mk
 
 # Default design
-#DESIGN_CONFIG ?= ./designs/nangate45/gcd/config.mk
+# DESIGN_CONFIG ?= ./designs/nangate45/gcd/config.mk
 
 ############################CUSTOM TEST CASES P2F###############################
 DESIGN_CONFIG ?= ./designs/nangate45/bptc004/config.mk
