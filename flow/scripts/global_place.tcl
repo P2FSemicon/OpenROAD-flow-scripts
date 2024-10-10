@@ -1,22 +1,11 @@
 utl::set_metrics_stage "globalplace__{}"
 source $::env(SCRIPTS_DIR)/load.tcl
+erase_non_stage_variables place
 load_design 3_2_place_iop.odb 2_floorplan.sdc
-
-# Temporary: remove after fixing instability in GPL with multithreading
-set_thread_count 1
 
 set_dont_use $::env(DONT_USE_CELLS)
 
-# set fastroute layer reduction
-if {[info exist env(FASTROUTE_TCL)]} {
-  source $env(FASTROUTE_TCL)
-} else {
-  set_global_routing_layer_adjustment $env(MIN_ROUTING_LAYER)-$env(MAX_ROUTING_LAYER) 0.5
-  set_routing_layers -signal $env(MIN_ROUTING_LAYER)-$env(MAX_ROUTING_LAYER)
-  if {[info exist env(MACRO_EXTENSION)]} {
-    set_macro_extension $env(MACRO_EXTENSION)
-  }
-}
+fast_route
 
 source $::env(SCRIPTS_DIR)/set_place_density.tcl
 
@@ -25,9 +14,6 @@ set global_placement_args {}
 # Parameters for routability mode in global placement
 if {$::env(GPL_ROUTABILITY_DRIVEN)} {
   lappend global_placement_args {-routability_driven}
-    if { [info exists ::env(GPL_TARGET_RC)] } { 
-      lappend global_placement_args {-routability_target_rc_metric} $::env(GPL_TARGET_RC)
-  }
 }
 
 # Parameters for timing driven mode in global placement
@@ -56,7 +42,7 @@ if {$result != 0} {
 
 estimate_parasitics -placement
 
-if {[info exist ::env(CLUSTER_FLOPS)]} {
+if {[env_var_equals CLUSTER_FLOPS 1]} {
   cluster_flops
   estimate_parasitics -placement
 }
