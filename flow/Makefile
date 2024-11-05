@@ -170,7 +170,9 @@ export UTILS_DIR     ?= $(FLOW_HOME)/util
 export SCRIPTS_DIR   ?= $(FLOW_HOME)/scripts
 export TEST_DIR      ?= $(FLOW_HOME)/test
 
-$(foreach line,$(shell $(SCRIPTS_DIR)/defaults.py),$(eval export $(line)))
+# __SPACE__ is a workaround for whitespace hell in "foreach"; there
+# is no way to escape space in defaults.py and get "foreach" to work.
+$(foreach line,$(shell $(SCRIPTS_DIR)/defaults.py),$(eval export $(subst __SPACE__, ,$(line))))
 
 PUBLIC=nangate45 sky130hd sky130hs asap7 ihp-sg13g2 gf180
 
@@ -188,8 +190,8 @@ include $(PLATFORM_DIR)/config.mk
 
 # Enables hierarchical yosys
 export SYNTH_HIERARCHICAL ?= 0
-export SYNTH_STOP_MODULE_SCRIPT = $(RESULTS_DIR)/keep_hierarchy.tcl
-export HIER_REPORT_SCRIPT = $(SCRIPTS_DIR)/synth_hier_report.tcl
+export SYNTH_STATS = $(RESULTS_DIR)/synth_stats.txt
+export SYNTH_STATS_SCRIPT = $(SCRIPTS_DIR)/synth_stats.tcl
 export MAX_UNGROUP_SIZE ?= 0
 
 # Enables Re-synthesis for area reclaim
@@ -243,7 +245,6 @@ ifneq ($(BLOCKS),)
   endif
 endif
 
-export RTLMP_FLOW ?= 1
 export RTLMP_RPT_DIR ?= $(OBJECTS_DIR)/rtlmp
 export RTLMP_RPT_FILE ?= partition.txt
 export RTLMP_BLOCKAGE_FILE ?= $(OBJECTS_DIR)/rtlmp/partition.txt.blockage
@@ -458,8 +459,7 @@ $(WRAPPED_LIBS):
 # |____/ |_| |_| \_| |_| |_| |_|_____|____/___|____/
 #
 .PHONY: synth
-synth: $(RESULTS_DIR)/1_synth.v \
-       $(RESULTS_DIR)/1_synth.sdc
+synth: $(RESULTS_DIR)/1_synth.v
 
 .PHONY: synth-report
 synth-report: synth
@@ -471,6 +471,9 @@ do-synth-report:
 
 .PHONY: memory
 memory:
+	if [ -f $(RESULTS_DIR)/mem_hierarchical.json ]; then \
+		python3 $(SCRIPTS_DIR)/mem_dump.py $(RESULTS_DIR)/mem_hierarchical.json; \
+	fi
 	python3 $(SCRIPTS_DIR)/mem_dump.py $(RESULTS_DIR)/mem.json
 
 # ==============================================================================
@@ -482,11 +485,11 @@ memory:
 export SYNTH_SCRIPT ?= $(SCRIPTS_DIR)/synth.tcl
 export SYNTH_MEMORY_MAX_BITS ?= 4096
 
-.PHONY: do-yosys-keep-hierarchy
-do-yosys-keep-hierarchy:
+.PHONY: do-yosys-stats
+do-yosys-stats:
 	mkdir -p $(RESULTS_DIR) $(LOG_DIR) $(REPORTS_DIR)
 	(export VERILOG_FILES=$(RESULTS_DIR)/1_synth.rtlil; \
-	$(TIME_CMD) $(YOSYS_EXE) $(YOSYS_FLAGS) -c $(HIER_REPORT_SCRIPT)) 2>&1 | tee $(abspath $(LOG_DIR)/1_1_yosys_hier_report.log)
+	$(TIME_CMD) $(YOSYS_EXE) $(YOSYS_FLAGS) -c $(SYNTH_STATS_SCRIPT)) 2>&1 | tee $(abspath $(LOG_DIR)/1_1_yosys_stats.log)
 
 export SDC_FILE_CLOCK_PERIOD = $(RESULTS_DIR)/clock_period.txt
 
@@ -514,11 +517,7 @@ $(RESULTS_DIR)/1_synth.rtlil: $(YOSYS_DEPENDENCIES)
 	$(UNSET_AND_MAKE) do-yosys-canonicalize
 
 $(RESULTS_DIR)/1_1_yosys.v: $(RESULTS_DIR)/1_synth.rtlil
-	$(UNSET_AND_MAKE) do-yosys-keep-hierarchy do-yosys
-
-$(RESULTS_DIR)/1_synth.sdc: $(SDC_FILE)
-	mkdir -p $(RESULTS_DIR)
-	cp $(SDC_FILE) $(RESULTS_DIR)/1_synth.sdc
+	$(UNSET_AND_MAKE) do-yosys-stats do-yosys
 
 .PHONY: do-synth
 do-synth:
@@ -530,10 +529,10 @@ $(RESULTS_DIR)/1_synth.v: $(RESULTS_DIR)/1_1_yosys.v
 
 .PHONY: clean_synth
 clean_synth:
-	rm -f $(RESULTS_DIR)/1_* $(RESULTS_DIR)/mem.json
+	rm -f $(RESULTS_DIR)/1_* $(RESULTS_DIR)/mem*.json
 	rm -f $(REPORTS_DIR)/synth_*
 	rm -f $(LOG_DIR)/1_*
-	rm -f $(SYNTH_STOP_MODULE_SCRIPT)
+	rm -f $(SYNTH_STATS)
 	rm -f $(SDC_FILE_CLOCK_PERIOD)
 	rm -rf _tmp_yosys-abc-*
 
@@ -657,31 +656,31 @@ endef
 #-------------------------------------------------------------------------------
 $(eval $(call do-step,2_1_floorplan,$(RESULTS_DIR)/1_synth.v $(RESULTS_DIR)/1_synth.sdc $(TECH_LEF) $(SC_LEF) $(ADDITIONAL_LEFS) $(FOOTPRINT) $(SIG_MAP_FILE) $(FOOTPRINT_TCL),floorplan))
 
+# STEP 2: Random IO placement
+#-------------------------------------------------------------------------------
 $(eval $(call do-step,2_2_floorplan_io,$(RESULTS_DIR)/2_1_floorplan.odb $(IO_CONSTRAINTS),io_placement_random))
 
-# STEP 3: Timing Driven Mixed Sized Placement
-#-------------------------------------------------------------------------------
-$(eval $(call do-step,2_3_floorplan_tdms,$(RESULTS_DIR)/2_2_floorplan_io.odb $(RESULTS_DIR)/1_synth.v $(RESULTS_DIR)/1_synth.sdc $(LIB_FILES),tdms_place))
+$(eval $(call do-copy,2_floorplan,2_1_floorplan.sdc,,.sdc))
 
-# STEP 4: Macro Placement
+# STEP 3: Macro Placement
 #-------------------------------------------------------------------------------
-$(eval $(call do-step,2_4_floorplan_macro,$(RESULTS_DIR)/2_3_floorplan_tdms.odb $(RESULTS_DIR)/1_synth.v $(RESULTS_DIR)/1_synth.sdc $(MACRO_PLACEMENT) $(MACRO_PLACEMENT_TCL),macro_place))
+$(eval $(call do-step,2_3_floorplan_macro,$(RESULTS_DIR)/2_2_floorplan_io.odb $(RESULTS_DIR)/1_synth.v $(RESULTS_DIR)/1_synth.sdc $(MACRO_PLACEMENT) $(MACRO_PLACEMENT_TCL),macro_place))
 
-# STEP 5: Tapcell and Welltie insertion
+# STEP 4: Tapcell and Welltie insertion
 #-------------------------------------------------------------------------------
-$(eval $(call do-step,2_5_floorplan_tapcell,$(RESULTS_DIR)/2_4_floorplan_macro.odb $(TAPCELL_TCL),tapcell))
+$(eval $(call do-step,2_4_floorplan_tapcell,$(RESULTS_DIR)/2_3_floorplan_macro.odb $(TAPCELL_TCL),tapcell))
 
-# STEP 6: PDN generation
+# STEP 5: PDN generation
 #-------------------------------------------------------------------------------
-$(eval $(call do-step,2_6_floorplan_pdn,$(RESULTS_DIR)/2_5_floorplan_tapcell.odb $(PDN_TCL),pdn))
+$(eval $(call do-step,2_5_floorplan_pdn,$(RESULTS_DIR)/2_4_floorplan_tapcell.odb $(PDN_TCL),pdn))
 
-$(eval $(call do-copy,2_floorplan,2_6_floorplan_pdn.odb,))
+$(eval $(call do-copy,2_floorplan,2_5_floorplan_pdn.odb,))
 
 $(RESULTS_DIR)/2_floorplan.sdc: $(RESULTS_DIR)/2_1_floorplan.odb
 
 .PHONY: do-floorplan
 do-floorplan:
-	$(UNSET_AND_MAKE) do-2_1_floorplan do-2_2_floorplan_io do-2_3_floorplan_tdms do-2_4_floorplan_macro do-2_5_floorplan_tapcell do-2_6_floorplan_pdn do-2_floorplan
+	$(UNSET_AND_MAKE) do-2_1_floorplan do-2_2_floorplan_io do-2_3_floorplan_macro do-2_4_floorplan_tapcell do-2_5_floorplan_pdn do-2_floorplan do-2_floorplan.sdc
 
 .PHONY: clean_floorplan
 clean_floorplan:
@@ -801,11 +800,15 @@ $(eval $(call do-step,5_3_fillcell,$(RESULTS_DIR)/5_2_route.odb,fillcell))
 
 $(eval $(call do-copy,5_route,5_3_fillcell.odb))
 
-$(eval $(call do-copy,5_route,4_cts.sdc,,.sdc))
+$(eval $(call do-copy,5_route,5_1_grt.sdc,,.sdc))
 
 .PHONY: do-route
 do-route:
 	$(UNSET_AND_MAKE) do-5_1_grt do-5_2_route do-5_3_fillcell do-5_route do-5_route.sdc
+
+.PHONY: do-grt
+do-grt:
+	$(UNSET_AND_MAKE) do-5_1_grt
 
 .PHONY: clean_route
 clean_route:
@@ -1080,7 +1083,7 @@ klayout:
 
 .phony: run
 run:
-	$(OPENROAD_CMD) -no_splash $(RUN_SCRIPT)
+	$(OPENROAD_CMD) -no_splash $(if $(filter %.py,$(RUN_SCRIPT)),-python) $(RUN_SCRIPT)
 
 # Utilities
 #-------------------------------------------------------------------------------
